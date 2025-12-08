@@ -62,12 +62,17 @@ async def predict_traffic(input_data: PredictionInput, predictor: CongestionPred
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/history/{camera_id}", response_model=HistoryResponse)
-async def get_history(camera_id: str, predictor: CongestionPredictor = Depends(get_predictor)):
+async def get_history(
+    camera_id: str, 
+    interval: int = 5, 
+    predictor: CongestionPredictor = Depends(get_predictor)
+):
     """
     Get historical data and a future prediction based on the last log.
+    Interval can be specified in minutes (1, 2, 5, 10, 15).
     """
     try:
-        history = predictor.get_traffic_history(camera_id)
+        history = predictor.get_traffic_history(camera_id, interval=interval)
         prediction = predictor.predict_future_from_last_log(camera_id)
         
         return HistoryResponse(

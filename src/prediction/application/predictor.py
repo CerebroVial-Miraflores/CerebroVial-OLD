@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from typing import Optional, List
 
@@ -49,10 +49,14 @@ class CongestionPredictor:
             meta_info={"model": "RandomForest_v2_Reg"}
         )
 
-    def get_traffic_history(self, camera_id: str, limit: int = 50) -> List[HistoricalDataPoint]:
+    def get_traffic_history(self, camera_id: str, interval: int = 5) -> List[HistoricalDataPoint]:
         """
-        Reads the traffic logs and retrieves historical data for the given camera.
+        Retrieves aggregated traffic data sampled every 'interval' minutes.
+        The window size is automatically calculated to maintain roughly 30 data points (interval * 30).
         """
+        # Calculate window size based on desired points (approx 30)
+        minutes = interval * 30
+        
         # Get latest logs
         df = self.csv_loader.load_all_logs()
         if df.empty:
@@ -66,12 +70,28 @@ class CongestionPredictor:
             if df.empty:
                 return []
 
-            # Take last N
-            df = df.tail(limit)
+            # Ensure valid timestamp
+            df['timestamp'] = df['timestamp'].astype(float)
+            df['datetime'] = df['timestamp'].apply(lambda x: datetime.fromtimestamp(x))
+            df = df.set_index('datetime').sort_index()
+
+            # Filter last N minutes
+            now = datetime.now()
+            start_time = now - timedelta(minutes=minutes)
+            df = df[df.index >= start_time]
+
+            # Resample to dynamic interval
+            # Using 'min' as 'T' is deprecated
+            resampled = df.resample(f'{interval}min').agg({
+                'total_vehicles': 'mean',
+                'occupancy_rate': 'mean'
+            }).fillna(0) # or interpolate
+
+            # Limit to exactly the requested window size if resampling produced more
             
             history = []
-            for _, row in df.iterrows():
-                # Determine congestion level heuristic
+            for dt, row in resampled.iterrows():
+                # Determine congestion level heuristic on AGGREGATED data
                 occ = float(row.get('occupancy_rate', 0))
                 level = "Normal"
                 if occ > 0.7:
@@ -79,9 +99,7 @@ class CongestionPredictor:
                 elif occ > 0.4:
                     level = "High"
                     
-                # Parse timestamp
-                ts = float(row.get('timestamp', 0))
-                ts_str = datetime.fromtimestamp(ts).strftime("%H:%M:%S") if ts > 0 else "N/A"
+                ts_str = dt.strftime("%H:%M") # Just Hour:Minute for cleaner X-axis
                 
                 history.append(HistoricalDataPoint(
                     timestamp=ts_str,
