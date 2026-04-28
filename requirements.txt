@@ -15,3 +15,9 @@ fastapi
 uvicorn
 python-multipart
 streamlink
+shapely
+sse-starlette
+alembic
+python-jose[cryptography]
+passlib[bcrypt]
+httpx
